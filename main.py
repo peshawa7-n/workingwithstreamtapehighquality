@@ -48,11 +48,12 @@ def download_youtube_video(youtube_url, output_path):
         logger.info(f"Starting download for: {youtube_url}")
         # Command to download the video.
         # -f "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best" attempts 1080p or best available.
-        # --output "%(title)s.%(ext)s" uses the video title as filename.
+        # --output specifies the output template for the file.
         # --merge-output-format mp4 ensures video and audio are merged into mp4 if separate streams are downloaded.
         # --no-playlist prevents downloading entire playlists if a playlist URL is provided.
         # --retries 5 for robustness
         # --buffer-size 16K can help with some buffering issues.
+        # --print-filepath will print the final downloaded file path to stdout, making it easy to retrieve.
         command = [
             "yt-dlp",
             "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
@@ -60,7 +61,8 @@ def download_youtube_video(youtube_url, output_path):
             "--no-playlist",
             "--retries", "5",
             "--buffer-size", "16K",
-            "-o", f"{output_path}/%(title)s.%(ext)s",
+            "-o", os.path.join(output_path, "%(title)s.%(ext)s"), # Use os.path.join for cross-OS path handling
+            "--print-filepath", # This is the key addition to get the exact file path
             youtube_url
         ]
         process = subprocess.run(command, capture_output=True, text=True, check=True)
@@ -68,20 +70,16 @@ def download_youtube_video(youtube_url, output_path):
         if process.stderr:
             logger.error(f"Download command stderr: {process.stderr}")
 
-        # Find the downloaded file
-        # yt-dlp prints the final file path to stdout, often on a line like "[download] Destination: ..."
-        match = re.search(r"\[download\] Destination: (.+)", process.stdout)
-        if match:
-            downloaded_file = match.group(1).strip()
-            # Ensure the path is relative to the DOWNLOAD_DIR if yt-dlp outputs an absolute path
-            if os.path.isabs(downloaded_file):
-                downloaded_file = os.path.relpath(downloaded_file, start=output_path)
-            # Prepend output_path to get the full path
-            full_path = os.path.join(output_path, downloaded_file)
+        # yt-dlp with --print-filepath will output the full path as the last line.
+        downloaded_file_raw_path = process.stdout.strip().split('\n')[-1]
+
+        # Ensure the path exists and convert it to an absolute path for reliability
+        if os.path.exists(downloaded_file_raw_path):
+            full_path = os.path.abspath(downloaded_file_raw_path)
             logger.info(f"Video downloaded to: {full_path}")
             return full_path
         else:
-            logger.error("Could not find downloaded file path in yt-dlp output.")
+            logger.error(f"Downloaded file not found at: {downloaded_file_raw_path}. yt-dlp output might be unexpected.")
             return None
 
     except subprocess.CalledProcessError as e:
@@ -144,8 +142,13 @@ def upload_to_streamtape(file_path):
 def cleanup_old_videos():
     """Removes older videos from the download directory to manage space."""
     try:
+        # Ensure DOWNLOAD_DIR exists before trying to list its contents
+        if not os.path.exists(DOWNLOAD_DIR):
+            logger.info(f"Download directory '{DOWNLOAD_DIR}' does not exist. No cleanup needed.")
+            return
+
         files = [(os.path.getmtime(os.path.join(DOWNLOAD_DIR, f)), os.path.join(DOWNLOAD_DIR, f))
-                     for f in os.listdir(DOWNLOAD_DIR) if os.path.isfile(os.path.join(DOWNLOAD_DIR, f))]
+                         for f in os.listdir(DOWNLOAD_DIR) if os.path.isfile(os.path.join(DOWNLOAD_DIR, f))]
         files.sort() # Sort by modification time (oldest first)
 
         if len(files) > MAX_DOWNLOADED_VIDEOS:
@@ -242,31 +245,4 @@ async def send_message_to_chat(chat_id, text):
         logger.error(f"Failed to send message to chat {chat_id}: {e}")
 
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log the error and send a message to the user."""
-    logger.error("Exception while handling an update:", exc_info=context.error)
-    if update and update.effective_message:
-        await update.effective_message.reply_text("An error occurred while processing your request. Please try again later.")
-
-
-def main() -> None:
-    """Start the bot."""
-    # Create the Application and pass it your bot's token.
-    global application # Make application accessible globally for send_message_to_chat
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-    # On different commands - answer in Telegram
-    application.add_handler(CommandHandler("start", start_command))
-
-    # On non command i.e. message - echo the message on Telegram
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_youtube_link))
-
-    # Error handler
-    application.add_error_handler(error_handler)
-
-    # Run the bot until the user presses Ctrl-C
-    logger.info("Bot started polling...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-if __name__ == "__main__":
-    main()
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> No
