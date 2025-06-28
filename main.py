@@ -1,248 +1,53 @@
 import os
-import asyncio
-import logging
-import subprocess
 import requests
-import re
-from queue import Queue
-from threading import Thread
+import yt_dlp
+import time
 
-# Install required libraries:
-# pip install python-telegram-bot yt-dlp requests
+# 🔐 Read your API key from env vars
+STREAMTAPE_API_KEY = os.getenv("STREAMTAPE_API_KEY")
 
-# --- Configuration ---
-# You NEED to get these values. Do NOT share them publicly.
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') # Get this from BotFather on Telegram.
-STREAMTAPE_API_USERNAME = os.getenv('STREAMTAPE_API_USERNAME') # Get this from your Streamtape account API page.
-STREAMTAPE_API_KEY = os.getenv('STREAMTAPE_API_KEY') # Get this from your Streamtape account API page.
+# 📺 List of YouTube URLs (replace or expand to 50)
+VIDEO_URLS = [
+    "https://www.youtube.com/watch?v=BaW_jenozKc",
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    # Add more up to 50...
+]
 
-# Directory to store downloaded videos temporarily
-DOWNLOAD_DIR = "downloads"
-# Maximum number of videos to keep in download directory before cleaning up
-MAX_DOWNLOADED_VIDEOS = 10
-
-# Setup logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# --- Global Queue and Processing Status ---
-video_queue = Queue()
-is_processing = False
-
-# --- Helper Functions ---
-
-def clean_filename(filename):
-    """Cleans a filename to be safe for file systems and URLs."""
-    # Remove characters that are not alphanumeric, spaces, dashes, or underscores
-    filename = re.sub(r'[^\w\s-]', '', filename)
-    # Replace spaces with underscores
-    filename = re.sub(r'\s+', '_', filename)
-    return filename
-
-def download_youtube_video(youtube_url, output_path):
-    """
-    Downloads a YouTube video in the best available quality (preferably 1080p).
-    Uses yt-dlp.
-    """
-    try:
-        logger.info(f"Starting download for: {youtube_url}")
-        # Command to download the video.
-        # -f "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best" attempts 1080p or best available.
-        # --output specifies the output template for the file.
-        # --merge-output-format mp4 ensures video and audio are merged into mp4 if separate streams are downloaded.
-        # --no-playlist prevents downloading entire playlists if a playlist URL is provided.
-        # --retries 5 for robustness
-        # --buffer-size 16K can help with some buffering issues.
-        # --print-filepath will print the final downloaded file path to stdout, making it easy to retrieve.
-        command = [
-            "yt-dlp",
-            "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
-            "--merge-output-format", "mp4",
-            "--no-playlist",
-            "--retries", "5",
-            "--buffer-size", "16K",
-            "-o", os.path.join(output_path, "%(title)s.%(ext)s"), # Use os.path.join for cross-OS path handling
-            "--print-filepath", # This is the key addition to get the exact file path
-            youtube_url
-        ]
-        process = subprocess.run(command, capture_output=True, text=True, check=True)
-        logger.info(f"Download command stdout: {process.stdout}")
-        if process.stderr:
-            logger.error(f"Download command stderr: {process.stderr}")
-
-        # yt-dlp with --print-filepath will output the full path as the last line.
-        downloaded_file_raw_path = process.stdout.strip().split('\n')[-1]
-
-        # Ensure the path exists and convert it to an absolute path for reliability
-        if os.path.exists(downloaded_file_raw_path):
-            full_path = os.path.abspath(downloaded_file_raw_path)
-            logger.info(f"Video downloaded to: {full_path}")
-            return full_path
-        else:
-            logger.error(f"Downloaded file not found at: {downloaded_file_raw_path}. yt-dlp output might be unexpected.")
-            return None
-
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error during video download: {e.stderr}")
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during download: {e}")
-        return None
-
-def upload_to_streamtape(file_path):
-    """
-    Uploads a file to Streamtape using their API.
-    Returns the direct video URL or None on failure.
-    """
-    logger.info(f"Starting upload for: {file_path}")
-    upload_url = "https://api.streamtape.com/file/ul"
-    params = {
-        "login": STREAMTAPE_API_USERNAME,
-        "key": STREAMTAPE_API_KEY
+def download_video(url, filename):
+    ydl_opts = {
+        'format': 'bestvideo+bestaudio/best',
+        'outtmpl': filename,
+        'merge_output_format': 'mp4',
+        'noplaylist': True,
     }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
 
-    try:
-        # Get upload server URL first
-        response = requests.get(upload_url, params=params)
-        response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
-        upload_data = response.json()
+def get_upload_url():
+    res = requests.get(f"https://api.streamtape.com/file/ul?login=&key={STREAMTAPE_API_KEY}")
+    return res.json()['result']['url']
 
-        if upload_data["status"] != 200:
-            logger.error(f"Failed to get Streamtape upload URL: {upload_data.get('message', 'Unknown error')}")
-            logger.error(f"Streamtape upload URL response text: {response.text}") # Log full response
-            return None
+def upload_to_streamtape(filename):
+    upload_url = get_upload_url()
+    with open(filename, 'rb') as f:
+        files = {'file1': (filename, f)}
+        response = requests.post(upload_url, files=files)
+        print("✅ Uploaded:", filename)
+        print("🌐 URL:", response.json())
+    os.remove(filename)  # Optional: delete after upload
 
-        actual_upload_url = upload_data["result"]["url"]
-        logger.info(f"Obtained Streamtape upload URL: {actual_upload_url}")
+def main():
+    for index, video_url in enumerate(VIDEO_URLS, start=1):
+        filename = f"video_{index}.mp4"
+        print(f"⏬ Downloading {video_url}")
+        try:
+            download_video(video_url, filename)
+            print("🚀 Uploading to StreamTape...")
+            upload_to_streamtape(filename)
+        except Exception as e:
+            print("❌ Error with video:", video_url)
+            print(e)
+        time.sleep(2)  # Slight delay to prevent rate limits
 
-        with open(file_path, "rb") as f:
-            # Changed 'file1' to 'file' as it's a common and safer field name for file uploads
-            files = {"file": (os.path.basename(file_path), f)}
-            upload_response = requests.post(actual_upload_url, files=files)
-            upload_response.raise_for_status() # Raise an HTTPError for bad responses
-            upload_result = upload_response.json()
-
-        if upload_result["status"] == 200:
-            file_code = upload_result["result"]["code"]
-            direct_url = f"https://streamtape.com/v/{file_code}"
-            logger.info(f"File uploaded successfully to Streamtape. URL: {direct_url}")
-            return direct_url
-        else:
-            logger.error(f"Streamtape upload failed: {upload_result.get('message', 'Unknown error')}")
-            logger.error(f"Streamtape upload response text: {upload_response.text}") # Log full response
-            return None
-
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Network or API error during Streamtape upload: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during Streamtape upload: {e}")
-        return None
-
-def cleanup_old_videos():
-    """Removes older videos from the download directory to manage space."""
-    try:
-        # Ensure DOWNLOAD_DIR exists before trying to list its contents
-        if not os.path.exists(DOWNLOAD_DIR):
-            logger.info(f"Download directory '{DOWNLOAD_DIR}' does not exist. No cleanup needed.")
-            return
-
-        files = [(os.path.getmtime(os.path.join(DOWNLOAD_DIR, f)), os.path.join(DOWNLOAD_DIR, f))
-                         for f in os.listdir(DOWNLOAD_DIR) if os.path.isfile(os.path.join(DOWNLOAD_DIR, f))]
-        files.sort() # Sort by modification time (oldest first)
-
-        if len(files) > MAX_DOWNLOADED_VIDEOS:
-            for i in range(len(files) - MAX_DOWNLOADED_VIDEOS):
-                oldest_file = files[i][1]
-                try:
-                    os.remove(oldest_file)
-                    logger.info(f"Cleaned up old file: {oldest_file}")
-                except OSError as e:
-                    logger.warning(f"Error removing old file {oldest_file}: {e}")
-    except Exception as e:
-        logger.error(f"Error during cleanup: {e}")
-
-
-# --- Telegram Bot Logic ---
-# Importing necessary parts from python-telegram-bot
-# This import needs to be here because `import telegram` is slow.
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Sends a message when the command /start is issued."""
-    await update.message.reply_text(
-        "Hello! Send me a YouTube video link and I'll download it and upload it to Streamtape for you."
-        "You can send multiple links, and I will process them one by one."
-    )
-
-async def handle_youtube_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles YouTube links, adds them to a queue, and starts processing."""
-    youtube_url = update.message.text
-    # Basic URL validation for YouTube
-    if not re.match(r"^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+$", youtube_url):
-        await update.message.reply_text("That doesn't look like a valid YouTube link. Please send a direct YouTube URL.")
-        return
-
-    await update.message.reply_text(f"Received your link: {youtube_url}\nAdding it to the queue...")
-    video_queue.put((youtube_url, update.effective_chat.id)) # Store chat ID to send updates back
-
-    # Start the processing thread if not already running
-    global is_processing
-    if not is_processing:
-        is_processing = True
-        Thread(target=process_queue, daemon=True).start()
-        logger.info("Started queue processing thread.")
-    else:
-        logger.info("Queue processing thread is already running.")
-
-
-def process_queue():
-    """Processes videos from the queue one by one."""
-    global is_processing
-    while not video_queue.empty():
-        youtube_url, chat_id = video_queue.get()
-        logger.info(f"Processing URL: {youtube_url} for chat_id: {chat_id}")
-
-        asyncio.run(send_message_to_chat(chat_id, f"🎬 Starting download for: {youtube_url}"))
-
-        # Ensure download directory exists
-        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
-        downloaded_file = download_youtube_video(youtube_url, DOWNLOAD_DIR)
-
-        if downloaded_file:
-            asyncio.run(send_message_to_chat(chat_id, f"✅ Download complete! Now uploading '{os.path.basename(downloaded_file)}' to Streamtape..."))
-            streamtape_url = upload_to_streamtape(downloaded_file)
-            if streamtape_url:
-                asyncio.run(send_message_to_chat(chat_id, f"🎉 Upload complete! Here's your Streamtape link:\n{streamtape_url}"))
-                # Clean up the downloaded file after successful upload
-                try:
-                    os.remove(downloaded_file)
-                    logger.info(f"Removed downloaded file: {downloaded_file}")
-                except OSError as e:
-                    logger.warning(f"Error removing downloaded file {downloaded_file}: {e}")
-            else:
-                asyncio.run(send_message_to_chat(chat_id, f"❌ Failed to upload '{os.path.basename(downloaded_file)}' to Streamtape."))
-        else:
-            asyncio.run(send_message_to_chat(chat_id, f"❌ Failed to download video from: {youtube_url}"))
-
-        # Clean up old videos occasionally
-        cleanup_old_videos()
-
-    is_processing = False
-    logger.info("Queue processing finished. No more videos in queue.")
-
-
-async def send_message_to_chat(chat_id, text):
-    """Sends a message to a specific chat ID. Used by the processing thread."""
-    # Ensure the Application instance is available.
-    # This assumes `application` is a global variable or passed around.
-    # For simplicity, we'll try to access the global application object.
-    try:
-        await application.bot.send_message(chat_id=chat_id, text=text, disable_web_page_preview=True)
-    except Exception as e:
-        logger.error(f"Failed to send message to chat {chat_id}: {e}")
-
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> No
+if __name__ == "__main__":
+    main()
