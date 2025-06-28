@@ -8,8 +8,8 @@ STREAMTAPE_API_KEY = os.getenv("STREAMTAPE_API_KEY")
 
 # 📺 List of YouTube URLs (replace or expand to 50)
 VIDEO_URLS = [
-    "https://www.youtube.com/watch?v=BaW_jenozKc",
-    "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    "https://youtu.be/nKK2lvBvsVw?si=Zq75EwaElttg5Msy",
+    "https://youtu.be/nKK2lvBvsVw?si=Zq75EwaElttg5Msy"
     # Add more up to 50...
 ]
 
