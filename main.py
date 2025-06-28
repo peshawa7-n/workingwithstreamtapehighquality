@@ -12,9 +12,9 @@ from threading import Thread
 
 # --- Configuration ---
 # You NEED to get these values. Do NOT share them publicly.
-TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE" # Get this from BotFather on Telegram.
-STREAMTAPE_API_USERNAME = "YOUR_STREAMTAPE_API_USERNAME_HERE" # Get this from your Streamtape account API page.
-STREAMTAPE_API_KEY = "YOUR_STREAMTAPE_API_KEY_HERE" # Get this from your Streamtape account API page.
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') # Get this from BotFather on Telegram.
+STREAMTAPE_API_USERNAME = os.getenv('STREAMTAPE_API_USERNAME') # Get this from your Streamtape account API page.
+STREAMTAPE_API_KEY = os.getenv('STREAMTAPE_API_KEY') # Get this from your Streamtape account API page.
 
 # Directory to store downloaded videos temporarily
 DOWNLOAD_DIR = "downloads"
