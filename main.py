@@ -64,9 +64,9 @@ def download_youtube_video(youtube_url, output_path):
             youtube_url
         ]
         process = subprocess.run(command, capture_output=True, text=True, check=True)
-        logger.info(f"Download command output: {process.stdout}")
+        logger.info(f"Download command stdout: {process.stdout}")
         if process.stderr:
-            logger.error(f"Download command error: {process.stderr}")
+            logger.error(f"Download command stderr: {process.stderr}")
 
         # Find the downloaded file
         # yt-dlp prints the final file path to stdout, often on a line like "[download] Destination: ..."
@@ -111,13 +111,15 @@ def upload_to_streamtape(file_path):
 
         if upload_data["status"] != 200:
             logger.error(f"Failed to get Streamtape upload URL: {upload_data.get('message', 'Unknown error')}")
+            logger.error(f"Streamtape upload URL response text: {response.text}") # Log full response
             return None
 
         actual_upload_url = upload_data["result"]["url"]
         logger.info(f"Obtained Streamtape upload URL: {actual_upload_url}")
 
         with open(file_path, "rb") as f:
-            files = {"file1": (os.path.basename(file_path), f)}
+            # Changed 'file1' to 'file' as it's a common and safer field name for file uploads
+            files = {"file": (os.path.basename(file_path), f)}
             upload_response = requests.post(actual_upload_url, files=files)
             upload_response.raise_for_status() # Raise an HTTPError for bad responses
             upload_result = upload_response.json()
@@ -129,6 +131,7 @@ def upload_to_streamtape(file_path):
             return direct_url
         else:
             logger.error(f"Streamtape upload failed: {upload_result.get('message', 'Unknown error')}")
+            logger.error(f"Streamtape upload response text: {upload_response.text}") # Log full response
             return None
 
     except requests.exceptions.RequestException as e:
@@ -142,7 +145,7 @@ def cleanup_old_videos():
     """Removes older videos from the download directory to manage space."""
     try:
         files = [(os.path.getmtime(os.path.join(DOWNLOAD_DIR, f)), os.path.join(DOWNLOAD_DIR, f))
-                 for f in os.listdir(DOWNLOAD_DIR) if os.path.isfile(os.path.join(DOWNLOAD_DIR, f))]
+                     for f in os.listdir(DOWNLOAD_DIR) if os.path.isfile(os.path.join(DOWNLOAD_DIR, f))]
         files.sort() # Sort by modification time (oldest first)
 
         if len(files) > MAX_DOWNLOADED_VIDEOS:
