@@ -2,4 +2,4 @@ yt-dlp
 requests
 python-telegram-bot
 ffmpeg
-
+python-dotenv
