@@ -15,6 +15,8 @@ def get_upload_url():
         return data['result']['url']
     else:
         raise Exception("Failed to get upload URL: " + str(data))
+        
+file_path = "downloads".strip()
 
 def upload_video(file_path):
     print(f"Uploading: {file_path}")
