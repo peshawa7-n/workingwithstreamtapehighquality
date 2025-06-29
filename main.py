@@ -7,7 +7,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # Load API key from .env
 load_dotenv()
-STREAMTAPE_API_USER = os.getenv("STREAMTAPE_API_USER")
+STREAMTAPE_API_USER = os.getenv("STREAMTAPE_API_USERNAME")
 STREAMTAPE_API_KEY = os.getenv("STREAMTAPE_API_KEY")
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
