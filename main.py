@@ -1,39 +1,69 @@
 import os
 import requests
+import yt_dlp
 from dotenv import load_dotenv
+from telegram import Update, Bot
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Load API credentials
+# Load API key from .env
 load_dotenv()
-API_LOGIN = os.getenv("STREAMTAPE_API_USERNAME")
-API_KEY = os.getenv("STREAMTAPE_API_KEY")
+STREAMTAPE_API_USER = os.getenv("STREAMTAPE_API_USER")
+STREAMTAPE_API_KEY = os.getenv("STREAMTAPE_API_KEY")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-def get_upload_url():
-    url = f"https://api.streamtape.com/file/ul?login={API_LOGIN}&key={API_KEY}"
-    response = requests.get(url)
-    data = response.json()
-    if data['status'] == 200:
-        return data['result']['url']
-    else:
-        raise Exception("Failed to get upload URL: " + str(data))
-        
-file_path = "downloads".strip()
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "downloads")
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-def upload_video(file_path):
-    print(f"Uploading: {file_path}")
-    upload_url = get_upload_url()
+# --- Download YouTube video using yt_dlp ---
+def download_video(url, output_dir=DOWNLOAD_DIR):
+    ydl_opts = {
+        'outtmpl': f'{output_dir}/%(title).100s.%(ext)s',
+        'format': 'bestvideo+bestaudio/best',
+        'merge_output_format': 'mp4',
+        'noplaylist': True,
+        'quiet': True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        file_path = ydl.prepare_filename(info).replace(".webm", ".mp4")
+        return file_path
+
+
+# --- Upload video to StreamTape ---
+def upload_to_streamtape(file_path):
+    # 1. Get upload URL
+    get_url = requests.get(f"https://api.streamtape.com/file/ul?login={STREAMTAPE_API_USER}&key={STREAMTAPE_API_KEY}")
+    res_json = get_url.json()
+    upload_url = res_json["result"]["url"]
+
+    # 2. Upload video
     with open(file_path, 'rb') as f:
-        files = {'file1': (os.path.basename(file_path), f)}
-        response = requests.post(upload_url, files=files)
-        result = response.json()
-        if result["status"] == 200:
-            print("✅ Upload Success!")
-            print("🎥 Video URL:", result["result"]["url"])
-        else:
-            print("❌ Upload Failed:", result)
+        response = requests.post(upload_url, files={'file1': f})
+    return response.text
 
-if __name__ == "__main__":
-    file_path = input("📂 Enter full path to video file: ").strip()
-    if os.path.isfile(file_path):
-        upload_video(file_path)
-    else:
-        print("❌ File not found. Please enter a valid path.")
+
+# --- Telegram Command Handler ---
+async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ Please send a valid YouTube video link.")
+        return
+
+    url = context.args[0]
+    await update.message.reply_text(f"🔽 Downloading: {url}")
+
+    try:
+        file_path = download_video(url)
+        await update.message.reply_text("⏫ Uploading to StreamTape...")
+        result = upload_to_streamtape(file_path)
+        await update.message.reply_text(f"✅ Uploaded to StreamTape:\n{result}")
+        os.remove(file_path)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
+
+# --- Run Bot ---
+if __name__ == '__main__':
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("upload", upload_command))
+    print("✅ Bot is running...")
+    app.run_polling()
